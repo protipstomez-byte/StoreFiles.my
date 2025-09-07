@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Personal Document Storage (Local)</title>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    body{max-width:980px;margin:28px auto;padding:18px;background:#f7fafc;color:#111}
+    header{display:flex;align-items:center;gap:12px}
+    h1{margin:0;font-size:20px}
+    .card{background:white;border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(12,12,12,0.06);margin-top:14px}
+    input[type=file]{display:block}
+    .controls{display:flex;gap:8px;align-items:center;margin-top:10px}
+    #file-list{margin-top:18px;display:grid;grid-template-columns:1fr;gap:10px}
+    .file-row{display:flex;align-items:center;justify-content:space-between;padding:10px;border-radius:10px;border:1px solid #eef2f6}
+    .meta{display:flex;gap:12px;align-items:center}
+    .buttons{display:flex;gap:6px}
+    button{padding:8px 10px;border-radius:8px;border:0;background:#0b63ff;color:white;cursor:pointer}
+    button.ghost{background:transparent;color:#0b63ff;border:1px solid #cfe0ff}
+    .small{font-size:13px;color:#444}
+    #preview{margin-top:12px}
+    iframe, img{max-width:100%;height:480px;border-radius:8px;border:1px solid #ddd}
+    pre{text-align:left;background:#0f1724;color:#e6eef8;padding:12px;border-radius:8px;overflow:auto}
+    .tag{font-size:12px;background:#eef2ff;padding:4px 8px;border-radius:6px}
+    .search{margin-left:auto}
+    @media (max-width:640px){iframe,img{height:300px}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Personal Document Storage — Local (browser)</h1>
+    <div class="small">Files are stored locally in your browser (IndexedDB). No server required.</div>
+  </header>
+
+  <div class="card">
+    <label for="file-input"><strong>Upload documents</strong></label>
+    <input id="file-input" type="file" multiple />
+
+    <div class="controls">
+      <button id="btn-upload">Save selected files</button>
+      <button id="btn-clear" class="ghost">Clear all files</button>
+      <input id="search" class="search" placeholder="Search filename or type" />
+    </div>
+
+    <div id="status" class="small" style="margin-top:8px"></div>
+
+    <div id="file-list"></div>
+
+    <div id="preview"></div>
+  </div>
+
+  <script>
+    // Simple personal document storage using IndexedDB (browser-local). No server.
+    // Features: upload multiple files, store as blobs, list, preview (pdf/image/text), download, delete, search, clear all.
+
+    const DB_NAME = 'doc_store_db_v1';
+    const STORE_NAME = 'files';
+    let db;
+
+    function openDB(){
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = (e) => {
+          const d = e.target.result;
+          if(!d.objectStoreNames.contains(STORE_NAME)){
+            d.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+          }
+        };
+        req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    function addFileObject(file){
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction([STORE_NAME],'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        // store minimal metadata + blob
+        const obj = { filename: file.name, type: file.type, size: file.size, time: Date.now(), blob: file };
+        const req = store.add(obj);
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    function getAllFiles(){
+      return new Promise((resolve,reject)=>{
+        const tx = db.transaction([STORE_NAME],'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.getAll();
+        req.onsuccess = (e)=> resolve(e.target.result);
+        req.onerror = (e)=> reject(e.target.error);
+      });
+    }
+
+    function deleteFile(id){
+      return new Promise((resolve,reject)=>{
+        const tx = db.transaction([STORE_NAME],'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.delete(Number(id));
+        req.onsuccess = ()=>resolve();
+        req.onerror = (e)=>reject(e.target.error);
+      });
+    }
+
+    function clearAll(){
+      return new Promise((resolve,reject)=>{
+        const tx = db.transaction([STORE_NAME],'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const req = store.clear();
+        req.onsuccess = ()=>resolve();
+        req.onerror = (e)=>reject(e.target.error);
+      });
+    }
+
+    // Utility
+    function humanFileSize(bytes){
+      const thresh = 1024;
+      if(Math.abs(bytes) < thresh) return bytes + ' B';
+      const units = ['KB','MB','GB','TB','PB','EB','ZB','YB'];
+      let u = -1;
+      do { bytes /= thresh; ++u; } while(Math.abs(bytes) >= thresh && u < units.length - 1);
+      return bytes.toFixed(1)+' '+units[u];
+    }
+
+    // UI hooks
+    const fileInput = document.getElementById('file-input');
+    const btnUpload = document.getElementById('btn-upload');
+    const status = document.getElementById('status');
+    const fileList = document.getElementById('file-list');
+    const preview = document.getElementById('preview');
+    const btnClear = document.getElementById('btn-clear');
+    const search = document.getElementById('search');
+
+    async function refreshList(){
+      const files = await getAllFiles();
+      const q = (search.value||'').toLowerCase().trim();
+      fileList.innerHTML = '';
+      if(files.length === 0){ fileList.innerHTML = '<div class="small">No files saved yet.</div>'; return; }
+
+      // sort by time desc
+      files.sort((a,b)=>b.time - a.time);
+
+      const filtered = files.filter(f => !q || f.filename.toLowerCase().includes(q) || (f.type||'').toLowerCase().includes(q));
+
+      if(filtered.length===0){ fileList.innerHTML = '<div class="small">No matches.</div>'; return; }
+
+      for(const f of filtered){
+        const row = document.createElement('div'); row.className = 'file-row';
+        const meta = document.createElement('div'); meta.className = 'meta';
+        const left = document.createElement('div');
+        left.innerHTML = `<div><strong>${escapeHtml(f.filename)}</strong></div><div class="small">${f.type || 'unknown'} • ${humanFileSize(f.size)}</div>`;
+        meta.appendChild(left);
+
+        const btns = document.createElement('div'); btns.className = 'buttons';
+        const previewBtn = document.createElement('button'); previewBtn.className='ghost'; previewBtn.textContent='Preview';
+        previewBtn.onclick = () => showPreview(f);
+        const downloadBtn = document.createElement('button'); downloadBtn.textContent='Download';
+        downloadBtn.onclick = () => downloadFileObject(f);
+        const delBtn = document.createElement('button'); delBtn.className='ghost'; delBtn.textContent='Delete';
+        delBtn.onclick = async () => { if(confirm('Delete "'+f.filename+'"?')){ await deleteFile(f.id); refreshList(); preview.innerHTML=''; } };
+
+        btns.appendChild(previewBtn); btns.appendChild(downloadBtn); btns.appendChild(delBtn);
+
+        row.appendChild(meta);
+        row.appendChild(btns);
+        fileList.appendChild(row);
+      }
+    }
+
+    function showPreview(fileRec){
+      preview.innerHTML = '';
+      const type = fileRec.type || '';
+      // create object URL
+      const url = URL.createObjectURL(fileRec.blob);
+
+      if(type.startsWith('image/')){
+        const img = document.createElement('img'); img.src = url; preview.appendChild(img);
+      } else if(type === 'application/pdf'){
+        const iframe = document.createElement('iframe'); iframe.src = url; preview.appendChild(iframe);
+      } else if(type.startsWith('text/') || type === 'application/json' || type.endsWith('+xml')){
+        const reader = new FileReader();
+        reader.onload = (e)=>{
+          const pre = document.createElement('pre'); pre.textContent = e.target.result; preview.appendChild(pre); URL.revokeObjectURL(url);
+        };
+        reader.onerror = ()=>{ preview.innerHTML = '<div class="small">Unable to read file.</div>'; URL.revokeObjectURL(url); };
+        reader.readAsText(fileRec.blob);
+      } else {
+        // generic
+        const info = document.createElement('div'); info.className='small';
+        info.innerHTML = `Preview not available for this file type (${escapeHtml(type||'unknown')}). <br/>You can download it instead.`;
+        preview.appendChild(info);
+        // show quick metadata and a download link
+        const dl = document.createElement('button'); dl.textContent='Download'; dl.onclick = ()=>downloadFileObject(fileRec);
+        preview.appendChild(dl);
+      }
+    }
+
+    function downloadFileObject(fileRec){
+      const url = URL.createObjectURL(fileRec.blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = fileRec.filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    }
+
+    function escapeHtml(s){ return (s+'').replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+
+    // Upload handler
+    btnUpload.addEventListener('click', async ()=>{
+      const files = fileInput.files;
+      if(!files || files.length===0){ alert('Select files first.'); return; }
+      status.textContent = `Saving ${files.length} file(s)...`;
+      try{
+        for(let i=0;i<files.length;i++){
+          const f = files[i];
+          await addFileObject(f);
+        }
+        status.textContent = `Saved ${files.length} file(s).`;
+        fileInput.value = '';
+        await refreshList();
+      }catch(err){ console.error(err); status.textContent = 'Error saving files: '+err; }
+    });
+
+    btnClear.addEventListener('click', async ()=>{
+      if(!confirm('Remove ALL files stored locally in this browser?')) return;
+      await clearAll();
+      await refreshList();
+      preview.innerHTML='';
+      status.textContent='All files cleared.';
+    });
+
+    search.addEventListener('input', ()=>refreshList());
+
+    // Initialize DB and UI
+    (async function init(){
+      try{
+        await openDB();
+        await refreshList();
+        status.textContent = 'Ready. Files are saved locally in your browser.';
+      }catch(err){ console.error(err); status.textContent = 'Failed to open local database: '+err; }
+    })();
+  </script>
+</body>
+</html>
