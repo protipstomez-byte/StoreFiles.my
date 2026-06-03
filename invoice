@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GST Invoice Generator</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<div class="container">
+
+    <h1>GST Invoice Generator</h1>
+
+    <!-- Seller Profiles -->
+
+    <div class="card">
+        <h2>Seller Details</h2>
+
+        <select id="sellerProfiles">
+            <option value="">Select Saved Seller</option>
+        </select>
+
+        <input type="text" id="sellerName" placeholder="Seller Name">
+        <input type="text" id="sellerAddress" placeholder="Seller Address">
+        <input type="text" id="sellerGST" placeholder="GSTIN">
+
+        <button onclick="saveSeller()">
+            Save Seller Profile
+        </button>
+    </div>
+
+    <!-- Buyer -->
+
+    <div class="card">
+        <h2>Buyer Details</h2>
+
+        <input type="text" id="buyerName" placeholder="Buyer Name">
+        <input type="text" id="buyerAddress" placeholder="Buyer Address">
+        <input type="text" id="buyerGST" placeholder="Buyer GSTIN">
+    </div>
+
+    <!-- Invoice -->
+
+    <div class="card">
+        <h2>Invoice Information</h2>
+
+        <input type="text" id="invoiceNo" placeholder="Invoice Number">
+
+        <input type="date" id="invoiceDate">
+
+        <input type="text" id="vehicleNo" placeholder="Vehicle Number">
+
+        <input type="text" id="ewayNo" placeholder="E-Way Bill Number">
+    </div>
+
+    <!-- Items -->
+
+    <div class="card">
+        <h2>Items</h2>
+
+        <table id="itemsTable">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>HSN</th>
+                    <th>Qty</th>
+                    <th>Rate</th>
+                    <th>Amount</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody id="itemBody">
+            </tbody>
+        </table>
+
+        <button onclick="addRow()">
+            Add Item
+        </button>
+    </div>
+
+    <!-- GST -->
+
+    <div class="card">
+        <h2>Tax Settings</h2>
+
+        <select id="gstRate">
+            <option value="0">0%</option>
+            <option value="5">5%</option>
+            <option value="12">12%</option>
+            <option value="18" selected>18%</option>
+            <option value="28">28%</option>
+        </select>
+    </div>
+
+    <!-- Totals -->
+
+    <div class="card totals">
+        <h2>Totals</h2>
+
+        <p>Subtotal: ₹ <span id="subtotal">0</span></p>
+
+        <p>CGST: ₹ <span id="cgst">0</span></p>
+
+        <p>SGST: ₹ <span id="sgst">0</span></p>
+
+        <h3>Total: ₹ <span id="grandTotal">0</span></h3>
+    </div>
+
+    <div class="buttons">
+        <button onclick="generatePDF()">
+            Generate PDF
+        </button>
+
+        <button onclick="window.print()">
+            Print
+        </button>
+    </div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
